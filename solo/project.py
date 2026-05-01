@@ -14,6 +14,11 @@ def project_id_for(root: Path) -> str:
     return digest[:16]
 
 
+def project_runtime_dir(root: Path) -> Path:
+    root = root.resolve()
+    return root / ".solo-runtime" / "projects" / project_id_for(root)
+
+
 def ensure_project(root: Path) -> Project:
     root = root.resolve()
     if not root.exists() or not root.is_dir():
@@ -29,7 +34,7 @@ def ensure_project(root: Path) -> Project:
     if active_config_dir is not None:
         workflow_dirs.append(active_config_dir / "workflows")
 
-    runtime_dir = root / ".solo-runtime"
+    runtime_dir = project_runtime_dir(root)
     for subdir in (
         runtime_dir,
         runtime_dir / "prompts",

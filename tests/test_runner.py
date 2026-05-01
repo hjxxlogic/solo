@@ -135,7 +135,7 @@ class ActionRunnerTests(unittest.TestCase):
                                     "mode": "create",
                                     "baseRef": "main",
                                     "branchName": "solo/{runId}",
-                                    "path": ".solo-runtime/worktrees/{runId}",
+                                    "path": "{runtimeDir}/worktrees/{runId}",
                                 },
                                 "command": ["python3", "-c", "open('created.txt', 'w').write('ok')"],
                             }
@@ -152,7 +152,7 @@ class ActionRunnerTests(unittest.TestCase):
             run = runner.run_sync(workflow, "wt")
 
             self.assertEqual(run.status, "completed")
-            self.assertTrue(run.cwd.match("*/.solo-runtime/worktrees/*"))
+            self.assertTrue(run.cwd.match("*/.solo-runtime/projects/*/worktrees/*"))
             self.assertTrue((run.cwd / "created.txt").exists())
 
     def test_running_action_can_be_stopped(self) -> None:

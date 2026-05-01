@@ -39,11 +39,11 @@ worktree scope 使用该 worktree 当前 checkout 的 git branch 名称解析配
 
 SOLO 自身运行时数据位于 `.solo-runtime/`：
 
-- `.solo-runtime/db.sqlite`
-- `.solo-runtime/prompts/`
-- `.solo-runtime/logs/`
-- `.solo-runtime/worktrees/`
-- `.solo-runtime/editors/`
+- `.solo-runtime/projects/{projectId}/db.sqlite`
+- `.solo-runtime/projects/{projectId}/prompts/`
+- `.solo-runtime/projects/{projectId}/logs/`
+- `.solo-runtime/projects/{projectId}/worktrees/`
+- `.solo-runtime/projects/{projectId}/editors/`
 
 `.solo-runtime/` 是本地运行时目录，默认不应提交。
 
@@ -55,6 +55,7 @@ SOLO 自身运行时数据位于 `.solo-runtime/`：
 - 项目命令必须来自 workflow 定义；不要设计任意 shell 输入框。
 - Codex 和项目命令的 cwd 必须位于项目 root 或项目 worktree 内。
 - 后端服务和 code-server 只能绑定到 `127.0.0.1`。
+- 任何修改都必须记录到 `Changelog.md`
 
 ## 文档风格
 

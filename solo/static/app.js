@@ -4,6 +4,7 @@ const state = {
   selectedWorkflow: null,
   selectedRun: null,
   runs: [],
+  codexSessions: [],
   activeTab: "logs",
   theme: "light",
   activeView: "overview",
@@ -48,6 +49,7 @@ function bindEvents() {
     button.addEventListener("click", () => setTheme(button.dataset.themeChoice));
   });
   el("refreshButton").addEventListener("click", refresh);
+  el("initProjectButton").addEventListener("click", initProject);
   el("openProjectEditorButton").addEventListener("click", openProjectEditor);
   el("statusButton").addEventListener("click", loadSelectedWorkflowData);
   el("runActionButton").addEventListener("click", runSelectedAction);
@@ -85,10 +87,14 @@ function updateNavCounts() {
   const rc = el("navRunCount");
   const wlc = el("workflowListCount");
   const rlc = el("runListCount");
+  const sc = el("navSessionCount");
+  const slc = el("sessionListCount");
   if (wc) wc.textContent = String(state.workflows.length);
   if (rc) rc.textContent = String(state.runs.length);
   if (wlc) wlc.textContent = String(state.workflows.length);
   if (rlc) rlc.textContent = String(state.runs.length);
+  if (sc) sc.textContent = String(state.codexSessions.length);
+  if (slc) slc.textContent = String(state.codexSessions.length);
 }
 
 function initTheme() {
@@ -117,9 +123,11 @@ async function loadRoot() {
     state.project = bootstrap.project;
     state.workflows = bootstrap.workflows || [];
     state.runs = bootstrap.runs || [];
+    state.codexSessions = bootstrap.codexSessions || [];
     renderProject();
     renderWorkflows();
     renderRuns();
+    renderCodexSessions();
     if (state.workflows.length > 0) {
       selectWorkflow(state.workflows[0]);
       return;
@@ -136,16 +144,31 @@ async function refresh() {
   const data = await api(`/api/projects/${state.project.id}/refresh`, { method: "POST", body: "{}" });
   state.project = data.project;
   state.workflows = data.workflows || [];
-  state.runs = await api("/api/runs");
+  state.runs = data.runs || (await api(`/api/projects/${state.project.id}/runs`));
+  state.codexSessions = await api(`/api/projects/${state.project.id}/codex-sessions`);
   renderProject();
   renderWorkflows();
   renderRuns();
+  renderCodexSessions();
   if (state.workflows.length > 0) {
     const keep = state.workflows.find((workflow) => workflow.id === state.selectedWorkflow?.id);
     selectWorkflow(keep || state.workflows[0]);
   } else {
     state.selectedWorkflow = null;
     renderWorkflowDetail();
+  }
+}
+
+async function initProject() {
+  if (!state.project) return;
+  try {
+    const result = await api(`/api/projects/${state.project.id}/init`, {
+      method: "POST",
+      body: "{}",
+    });
+    showToast(`Codex hooks installed: ${result.hooksPath || ""}`);
+  } catch (error) {
+    showToast(error.message);
   }
 }
 
@@ -224,8 +247,11 @@ async function loadSelectedWorkflowData() {
   }
   try {
     const [status, items] = await Promise.all([
-      api(`/api/workflows/${workflow.id}/status`, { method: "POST", body: "{}" }),
-      api(`/api/workflows/${workflow.id}/items`),
+      api(`/api/projects/${state.project.id}/workflows/${workflow.id}/status`, {
+        method: "POST",
+        body: "{}",
+      }),
+      api(`/api/projects/${state.project.id}/workflows/${workflow.id}/items`),
     ]);
     el("statusOutput").textContent = JSON.stringify(status, null, 2);
     renderItems(items || []);
@@ -271,7 +297,7 @@ async function runSelectedAction() {
   if (workItemId) body.workItemId = workItemId;
 
   try {
-    const run = await api(`/api/workflows/${workflow.id}/actions/${actionId}/run`, {
+    const run = await api(`/api/projects/${state.project.id}/workflows/${workflow.id}/actions/${actionId}/run`, {
       method: "POST",
       body: JSON.stringify(body),
     });
@@ -312,6 +338,27 @@ function renderRuns() {
   });
 }
 
+function renderCodexSessions() {
+  updateNavCounts();
+  const body = el("sessionsBody");
+  body.innerHTML = "";
+  if (state.codexSessions.length === 0) {
+    body.innerHTML = `<tr><td colspan="5" class="muted">No sessions</td></tr>`;
+    return;
+  }
+  state.codexSessions.forEach((session) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${escapeHtml(session.id)}</td>
+      <td>${escapeHtml(session.firstPrompt || "")}</td>
+      <td>${statusPill(session.status || "active")}</td>
+      <td>${escapeHtml(session.turnCount ?? 0)}</td>
+      <td>${escapeHtml(session.lastEventAt || "")}</td>
+    `;
+    body.appendChild(row);
+  });
+}
+
 async function loadRunOutput() {
   const run = state.selectedRun;
   if (!run) {
@@ -319,7 +366,7 @@ async function loadRunOutput() {
     return;
   }
   try {
-    const output = await api(`/api/runs/${run.id}/${state.activeTab}`);
+    const output = await api(`/api/projects/${state.project.id}/runs/${run.id}/${state.activeTab}`);
     el("runOutput").textContent = output || "";
   } catch (error) {
     showToast(error.message);
@@ -330,7 +377,10 @@ async function openSelectedRunEditor() {
   const run = state.selectedRun;
   if (!run) return;
   try {
-    const editor = await api(`/api/runs/${run.id}/open-editor`, { method: "POST", body: "{}" });
+    const editor = await api(`/api/projects/${state.project.id}/runs/${run.id}/open-editor`, {
+      method: "POST",
+      body: "{}",
+    });
     showEditorOverlay(editor.url);
   } catch (error) {
     showToast(error.message);
@@ -372,7 +422,10 @@ async function stopSelectedRun() {
   const run = state.selectedRun;
   if (!run) return;
   try {
-    const stopped = await api(`/api/runs/${run.id}/stop`, { method: "POST", body: "{}" });
+    const stopped = await api(`/api/projects/${state.project.id}/runs/${run.id}/stop`, {
+      method: "POST",
+      body: "{}",
+    });
     const index = state.runs.findIndex((item) => item.id === stopped.id);
     if (index >= 0) state.runs[index] = stopped;
     state.selectedRun = stopped;
@@ -410,7 +463,14 @@ async function bootstrapWorkflow(event) {
 function connectEvents() {
   if (!window.EventSource) return;
   const events = new EventSource("/api/events");
-  events.addEventListener("workflow_status_updated", () => loadSelectedWorkflowData());
+  events.addEventListener("workflow_status_updated", (event) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      if (parsed.payload?.projectId === state.project?.id) loadSelectedWorkflowData();
+    } catch {
+      return;
+    }
+  });
   events.addEventListener("run_completed", (event) => updateRunFromEvent(event));
   events.addEventListener("run_failed", (event) => updateRunFromEvent(event));
 }
@@ -419,7 +479,7 @@ function updateRunFromEvent(event) {
   try {
     const parsed = JSON.parse(event.data);
     const run = parsed.payload?.run;
-    if (!run) return;
+    if (!run || run.projectId !== state.project?.id) return;
     const index = state.runs.findIndex((item) => item.id === run.id);
     if (index >= 0) state.runs[index] = run;
     if (state.selectedRun?.id === run.id) state.selectedRun = run;

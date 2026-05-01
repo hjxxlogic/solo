@@ -454,7 +454,8 @@ th {
 }
 
 .status.completed,
-.status.done {
+.status.done,
+.status.ended {
   color: var(--ok);
   background: var(--status-completed-bg);
 }
@@ -498,6 +499,11 @@ dialog {
   display: grid;
   gap: 6px;
   color: var(--muted);
+}
+
+.dialog-body input,
+.dialog-body textarea {
+  width: 100%;
 }
 
 .toast {

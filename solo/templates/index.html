@@ -36,6 +36,10 @@
               <span class="nav-label">Runs</span>
               <span class="nav-hint muted small"><span id="navRunCount">{{ runs | length }}</span> recorded</span>
             </button>
+            <button class="nav-item" data-view="sessions">
+              <span class="nav-label">Codex Sessions</span>
+              <span class="nav-hint muted small"><span id="navSessionCount">{{ codex_sessions | length }}</span> tracked</span>
+            </button>
           </nav>
 
           <div class="sidebar-foot">
@@ -56,6 +60,7 @@
               </div>
               <div class="toolbar">
                 <button id="refreshButton" class="primary">Refresh</button>
+                <button id="initProjectButton">Init Codex Hooks</button>
                 <button id="openProjectEditorButton">Open code-server</button>
                 <button id="createWorkflowButton">Create Workflow</button>
               </div>
@@ -191,6 +196,37 @@
                 <pre id="runOutput" class="pre tall"></pre>
               </section>
             </div>
+          </section>
+
+          <!-- Codex sessions view -->
+          <section class="view" data-view="sessions">
+            <div class="content-header">
+              <div>
+                <h2>Codex Sessions</h2>
+                <p class="muted">Session state collected from Codex hooks.</p>
+              </div>
+            </div>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h3>All</h3>
+                <span class="muted small" id="sessionListCount">{{ codex_sessions | length }}</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Session</th>
+                      <th>First Prompt</th>
+                      <th>Status</th>
+                      <th>Turns</th>
+                      <th>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sessionsBody"></tbody>
+                </table>
+              </div>
+            </section>
           </section>
         </section>
       </main>

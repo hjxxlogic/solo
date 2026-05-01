@@ -26,19 +26,30 @@ HOP_BY_HOP_HEADERS = {
 
 
 class EditorProxyMiddleware:
-    def __init__(self, app, project_getter: Callable[[], Project]):
+    def __init__(
+        self,
+        app,
+        project_getter: Callable[[], Project] | None = None,
+        editor_record_getter: Callable[[str], dict | None] | None = None,
+    ):
         self.app = app
         self.project_getter = project_getter
+        self.editor_record_getter = editor_record_getter
 
     async def __call__(self, scope, receive, send) -> None:
         if scope["type"] in {"http", "websocket"}:
             host = _scope_header(scope, b"host")
-            if editor_id_from_host(host):
+            editor_id = editor_id_from_host(host)
+            if editor_id:
                 path = str(scope.get("path") or "/").lstrip("/")
                 if scope["type"] == "http":
                     request = Request(scope, receive)
                     try:
-                        response = await proxy_editor_http(self.project_getter(), request, path)
+                        response = await proxy_editor_http_record(
+                            self._editor_record(editor_id),
+                            request,
+                            path,
+                        )
                     except HTTPException as exc:
                         response = JSONResponse(
                             {"detail": exc.detail},
@@ -47,9 +58,27 @@ class EditorProxyMiddleware:
                     await response(scope, receive, send)
                     return
                 websocket = WebSocket(scope, receive, send)
-                await proxy_editor_websocket(self.project_getter(), websocket, path)
+                try:
+                    record = self._editor_record(editor_id)
+                except HTTPException:
+                    await websocket.close(code=1008)
+                    return
+                await proxy_editor_websocket_record(record, websocket, path)
                 return
         await self.app(scope, receive, send)
+
+    def _editor_record(self, editor_id: str) -> dict:
+        if self.editor_record_getter is not None:
+            record = self.editor_record_getter(editor_id)
+            if record:
+                return record
+            raise HTTPException(status_code=404, detail="editor not found")
+        if self.project_getter is None:
+            raise HTTPException(status_code=404, detail="editor not found")
+        record = load_editor_record(self.project_getter(), editor_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="editor not found")
+        return record
 
 
 def request_public_origin(request: Request) -> str:
@@ -73,6 +102,10 @@ def _first_header_value(value: str | None) -> str | None:
 
 async def proxy_editor_http(project: Project, request: Request, path: str) -> Response:
     record = _editor_record_for_host(project, request.headers.get("host"))
+    return await proxy_editor_http_record(record, request, path)
+
+
+async def proxy_editor_http_record(record: dict, request: Request, path: str) -> Response:
     port = int(record["port"])
     target_url = _target_url("http", port, path, request.url.query)
     headers = _forward_headers(dict(request.headers), port)
@@ -102,6 +135,10 @@ async def proxy_editor_websocket(project: Project, websocket: WebSocket, path: s
         await websocket.close(code=1008)
         return
 
+    await proxy_editor_websocket_record(record, websocket, path)
+
+
+async def proxy_editor_websocket_record(record: dict, websocket: WebSocket, path: str) -> None:
     port = int(record["port"])
     target_url = _target_url("ws", port, path, websocket.url.query)
     await websocket.accept()

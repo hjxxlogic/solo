@@ -3,10 +3,11 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .editor import open_editor
+from .editor import load_editor_record, open_editor
 from .errors import NotFoundError, SoloError
 from .events import EventBus, format_sse
 from .git import diff as git_diff
+from .init import install_codex_hooks
 from .project import ensure_project, git_info
 from .proxy import EditorProxyMiddleware, request_public_origin
 from .runner import ActionRunner
@@ -20,10 +21,41 @@ class SoloContext:
         self.events = EventBus()
         self.open_project(root)
 
-    def open_project(self, root: Path) -> None:
-        self.project = ensure_project(root)
-        self.store = Store(self.project.runtime_dir / "db.sqlite")
-        self.runner = ActionRunner(self.project, self.store, self.events)
+    @property
+    def project(self):
+        return self._project
+
+    @property
+    def store(self):
+        return self._store
+
+    @property
+    def runner(self):
+        return self._runner
+
+    def open_project(self, root: Path):
+        project = ensure_project(root)
+        store = Store(project.runtime_dir / "db.sqlite")
+        self._project = project
+        self._store = store
+        self._runner = ActionRunner(project, store, self.events)
+        return project
+
+    def get_project(self, project_id: str):
+        if project_id != self.project.id:
+            raise NotFoundError(f"project not found: {project_id}")
+        return self.project
+
+    def get_store(self, project_id: str) -> Store:
+        self.get_project(project_id)
+        return self.store
+
+    def get_runner(self, project_id: str) -> ActionRunner:
+        self.get_project(project_id)
+        return self.runner
+
+    def load_editor_record(self, editor_id: str) -> dict | None:
+        return load_editor_record(self.project, editor_id)
 
 
 def create_app(root: Path):
@@ -37,7 +69,7 @@ def create_app(root: Path):
 
     ctx = SoloContext(root)
     app = FastAPI(title="SOLO", version=__version__)
-    app.add_middleware(EditorProxyMiddleware, project_getter=lambda: ctx.project)
+    app.add_middleware(EditorProxyMiddleware, editor_record_getter=ctx.load_editor_record)
     templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -45,44 +77,60 @@ def create_app(root: Path):
         status = 404 if isinstance(exc, NotFoundError) else 400
         return HTTPException(status_code=status, detail=str(exc))
 
-    @app.post("/api/projects/open")
-    def open_project(body: dict[str, Any] | None = None):
-        try:
-            requested = Path(str((body or {}).get("path") or ctx.project.root_path)).resolve()
-            ctx.open_project(requested)
-            ctx.events.publish("project_loaded", project=ctx.project.to_dict())
-            return ctx.project.to_dict()
-        except SoloError as exc:
-            raise handle_error(exc) from exc
+    def project_scope(project_id: str):
+        project = ctx.get_project(project_id)
+        return project, ctx.get_store(project_id), ctx.get_runner(project_id)
 
     @app.get("/api/projects/{project_id}")
     def get_project(project_id: str):
-        if project_id != ctx.project.id:
-            raise HTTPException(status_code=404, detail="project not found")
-        return ctx.project.to_dict()
+        try:
+            return ctx.get_project(project_id).to_dict()
+        except SoloError as exc:
+            raise handle_error(exc) from exc
 
     @app.post("/api/projects/{project_id}/refresh")
     def refresh_project(project_id: str):
-        if project_id != ctx.project.id:
-            raise HTTPException(status_code=404, detail="project not found")
-        workflows = [workflow.to_dict() for workflow in load_workflows(ctx.project)]
-        ctx.events.publish("project_loaded", project=ctx.project.to_dict())
+        try:
+            project, store, _runner = project_scope(project_id)
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+        workflows = [workflow.to_dict() for workflow in load_workflows(project)]
+        ctx.events.publish("project_loaded", project=project.to_dict())
         for workflow in workflows:
-            ctx.events.publish("workflow_loaded", workflow=workflow)
-        return {"project": ctx.project.to_dict(), "workflows": workflows}
+            ctx.events.publish("workflow_loaded", projectId=project.id, workflow=workflow)
+        return {"project": project.to_dict(), "workflows": workflows, "runs": store.list_runs(project.id)}
 
     @app.get("/api/projects/{project_id}/git")
     def get_git(project_id: str):
-        if project_id != ctx.project.id:
-            raise HTTPException(status_code=404, detail="project not found")
-        return git_info(ctx.project)
+        try:
+            project, _store, _runner = project_scope(project_id)
+            return git_info(project)
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.get("/api/projects/{project_id}/codex-sessions")
+    def get_codex_sessions(project_id: str):
+        try:
+            project, store, _runner = project_scope(project_id)
+            return store.list_codex_sessions(project.id)
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.post("/api/projects/{project_id}/init")
+    def init_project(project_id: str):
+        try:
+            project, _store, _runner = project_scope(project_id)
+            result = install_codex_hooks(project)
+            ctx.events.publish("project_initialized", projectId=project_id, result=result)
+            return result
+        except SoloError as exc:
+            raise handle_error(exc) from exc
 
     @app.post("/api/projects/{project_id}/open-editor")
     def project_open_editor(project_id: str, request: Request):
-        if project_id != ctx.project.id:
-            raise HTTPException(status_code=404, detail="project not found")
         try:
-            data = open_editor(ctx.project, ctx.project.root_path, request_public_origin(request))
+            project, _store, _runner = project_scope(project_id)
+            data = open_editor(project, project.root_path, request_public_origin(request))
             ctx.events.publish("editor_started", projectId=project_id, editor=data)
             return data
         except SoloError as exc:
@@ -90,20 +138,164 @@ def create_app(root: Path):
 
     @app.get("/api/projects/{project_id}/workflows")
     def get_workflows(project_id: str):
-        if project_id != ctx.project.id:
-            raise HTTPException(status_code=404, detail="project not found")
-        return [workflow.to_dict() for workflow in load_workflows(ctx.project)]
+        try:
+            project, _store, _runner = project_scope(project_id)
+            return [workflow.to_dict() for workflow in load_workflows(project)]
+        except SoloError as exc:
+            raise handle_error(exc) from exc
 
     @app.post("/api/projects/{project_id}/workflows/bootstrap")
     def bootstrap_workflow(project_id: str, body: dict[str, Any] | None = None):
-        if project_id != ctx.project.id:
-            raise HTTPException(status_code=404, detail="project not found")
         body = body or {}
         try:
-            return ctx.runner.bootstrap_workflow(
+            _project, _store, runner = project_scope(project_id)
+            return runner.bootstrap_workflow(
                 str(body.get("goal") or ""),
                 dry_run=bool(body.get("dryRun", False)),
             ).to_dict()
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.get("/api/projects/{project_id}/workflows/{workflow_id}")
+    def get_project_workflow(project_id: str, workflow_id: str):
+        try:
+            project, _store, _runner = project_scope(project_id)
+            return find_workflow(project, workflow_id).to_dict()
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.post("/api/projects/{project_id}/workflows/{workflow_id}/status")
+    def get_project_status(project_id: str, workflow_id: str):
+        try:
+            project, _store, _runner = project_scope(project_id)
+            workflow = find_workflow(project, workflow_id)
+            data = status_data(project, workflow)
+            ctx.events.publish(
+                "workflow_status_updated",
+                projectId=project.id,
+                workflowId=workflow_id,
+                status=data,
+            )
+            for item in work_items(project, workflow):
+                ctx.events.publish(
+                    "work_item_updated",
+                    projectId=project.id,
+                    workflowId=workflow_id,
+                    item=item.to_dict(),
+                )
+            return data
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.get("/api/projects/{project_id}/workflows/{workflow_id}/items")
+    def get_project_items(project_id: str, workflow_id: str):
+        try:
+            project, _store, _runner = project_scope(project_id)
+            workflow = find_workflow(project, workflow_id)
+            return [item.to_dict() for item in work_items(project, workflow)]
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.get("/api/projects/{project_id}/workflows/{workflow_id}/views")
+    def get_project_views(project_id: str, workflow_id: str):
+        try:
+            project, _store, _runner = project_scope(project_id)
+            return workflow_views(find_workflow(project, workflow_id))
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.post("/api/projects/{project_id}/workflows/{workflow_id}/actions/{action_id}/run")
+    def run_project_action(
+        project_id: str,
+        workflow_id: str,
+        action_id: str,
+        body: dict[str, Any] | None = None,
+    ):
+        body = body or {}
+        try:
+            project, _store, runner = project_scope(project_id)
+            workflow = find_workflow(project, workflow_id)
+            run = runner.run_sync(
+                workflow,
+                action_id,
+                work_item_id=body.get("workItemId"),
+                dry_run=bool(body.get("dryRun", False)),
+                inputs=body.get("inputs") if isinstance(body.get("inputs"), dict) else None,
+            )
+            return run.to_dict()
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.get("/api/projects/{project_id}/runs")
+    def get_project_runs(project_id: str):
+        try:
+            project, store, _runner = project_scope(project_id)
+            return store.list_runs(project.id)
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.get("/api/projects/{project_id}/runs/{run_id}")
+    def get_project_run(project_id: str, run_id: str):
+        try:
+            _project, _store, runner = project_scope(project_id)
+            return runner.get_run(run_id).to_dict()
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.post("/api/projects/{project_id}/runs/{run_id}/stop")
+    def stop_project_run(project_id: str, run_id: str):
+        try:
+            _project, _store, runner = project_scope(project_id)
+            return runner.stop_run(run_id).to_dict()
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.get("/api/projects/{project_id}/runs/{run_id}/logs", response_class=PlainTextResponse)
+    def get_project_run_logs(project_id: str, run_id: str):
+        try:
+            _project, _store, runner = project_scope(project_id)
+            run = runner.get_run(run_id)
+            return run.log_path.read_text(encoding="utf-8") if run.log_path.exists() else ""
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.get("/api/projects/{project_id}/runs/{run_id}/prompt", response_class=PlainTextResponse)
+    def get_project_run_prompt(project_id: str, run_id: str):
+        try:
+            _project, _store, runner = project_scope(project_id)
+            run = runner.get_run(run_id)
+            path = run.prompt_path
+            return path.read_text(encoding="utf-8") if path and path.exists() else ""
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.get("/api/projects/{project_id}/runs/{run_id}/final", response_class=PlainTextResponse)
+    def get_project_run_final(project_id: str, run_id: str):
+        try:
+            _project, _store, runner = project_scope(project_id)
+            run = runner.get_run(run_id)
+            path = run.final_message_path
+            return path.read_text(encoding="utf-8") if path and path.exists() else ""
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.get("/api/projects/{project_id}/runs/{run_id}/diff", response_class=PlainTextResponse)
+    def get_project_run_diff(project_id: str, run_id: str):
+        try:
+            project, _store, runner = project_scope(project_id)
+            run = runner.get_run(run_id)
+            return git_diff(project.root_path, run.cwd, project.default_branch)
+        except SoloError as exc:
+            raise handle_error(exc) from exc
+
+    @app.post("/api/projects/{project_id}/runs/{run_id}/open-editor")
+    def project_run_open_editor(project_id: str, run_id: str, request: Request):
+        try:
+            project, _store, runner = project_scope(project_id)
+            run = runner.get_run(run_id)
+            data = open_editor(project, run.cwd, request_public_origin(request))
+            ctx.events.publish("editor_started", projectId=project_id, runId=run_id, editor=data)
+            return data
         except SoloError as exc:
             raise handle_error(exc) from exc
 
@@ -119,9 +311,19 @@ def create_app(root: Path):
         try:
             workflow = find_workflow(ctx.project, workflow_id)
             data = status_data(ctx.project, workflow)
-            ctx.events.publish("workflow_status_updated", workflowId=workflow_id, status=data)
+            ctx.events.publish(
+                "workflow_status_updated",
+                projectId=ctx.project.id,
+                workflowId=workflow_id,
+                status=data,
+            )
             for item in work_items(ctx.project, workflow):
-                ctx.events.publish("work_item_updated", workflowId=workflow_id, item=item.to_dict())
+                ctx.events.publish(
+                    "work_item_updated",
+                    projectId=ctx.project.id,
+                    workflowId=workflow_id,
+                    item=item.to_dict(),
+                )
             return data
         except SoloError as exc:
             raise handle_error(exc) from exc
@@ -214,7 +416,7 @@ def create_app(root: Path):
         try:
             run = ctx.runner.get_run(run_id)
             data = open_editor(ctx.project, run.cwd, request_public_origin(request))
-            ctx.events.publish("editor_started", runId=run_id, editor=data)
+            ctx.events.publish("editor_started", projectId=ctx.project.id, runId=run_id, editor=data)
             return data
         except SoloError as exc:
             raise handle_error(exc) from exc

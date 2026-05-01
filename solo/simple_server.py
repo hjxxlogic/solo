@@ -11,6 +11,7 @@ from .app import SoloContext
 from .editor import open_editor
 from .errors import NotFoundError, SoloError
 from .git import diff as git_diff
+from .init import install_codex_hooks
 from .project import git_info
 from .ui import STATIC_DIR, render_index
 from .workflow import find_workflow, load_workflows, status_data, workflow_views, work_items
@@ -115,36 +116,104 @@ def route(ctx: SoloContext, method: str, path: str, body: dict) -> object:
         return {"name": "SOLO", "project": ctx.project.to_dict()}
     if parts == ["api", "events"]:
         return "SSE requires the FastAPI server; install project dependencies for /api/events.\n"
-    if method == "POST" and parts == ["api", "projects", "open"]:
-        requested = Path(str(body.get("path") or ctx.project.root_path)).resolve()
-        ctx.open_project(requested)
-        return ctx.project.to_dict()
     if len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "git":
-        _require_project(ctx, parts[2])
-        return git_info(ctx.project)
+        project, _store, _runner = _project_scope(ctx, parts[2])
+        return git_info(project)
+    if len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "codex-sessions":
+        project, store, _runner = _project_scope(ctx, parts[2])
+        return store.list_codex_sessions(project.id)
+    if method == "POST" and len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "init":
+        project, _store, _runner = _project_scope(ctx, parts[2])
+        return install_codex_hooks(project)
     if method == "POST" and len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "open-editor":
-        _require_project(ctx, parts[2])
-        return open_editor(ctx.project, ctx.project.root_path)
+        project, _store, _runner = _project_scope(ctx, parts[2])
+        return open_editor(project, project.root_path)
     if len(parts) == 3 and parts[:2] == ["api", "projects"]:
-        _require_project(ctx, parts[2])
-        return ctx.project.to_dict()
+        return ctx.get_project(parts[2]).to_dict()
     if len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "refresh":
-        _require_project(ctx, parts[2])
-        return {"project": ctx.project.to_dict(), "workflows": _workflow_dicts(ctx)}
+        project, store, _runner = _project_scope(ctx, parts[2])
+        return {
+            "project": project.to_dict(),
+            "workflows": _workflow_dicts(project),
+            "runs": store.list_runs(project.id),
+        }
     if len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "workflows":
-        _require_project(ctx, parts[2])
-        return _workflow_dicts(ctx)
+        project, _store, _runner = _project_scope(ctx, parts[2])
+        return _workflow_dicts(project)
     if (
         method == "POST"
         and len(parts) == 5
         and parts[:2] == ["api", "projects"]
         and parts[3:] == ["workflows", "bootstrap"]
     ):
-        _require_project(ctx, parts[2])
-        return ctx.runner.bootstrap_workflow(
+        _project, _store, runner = _project_scope(ctx, parts[2])
+        return runner.bootstrap_workflow(
             str(body.get("goal") or ""),
             dry_run=bool(body.get("dryRun", False)),
         ).to_dict()
+    if len(parts) == 5 and parts[:2] == ["api", "projects"] and parts[3] == "workflows":
+        project, _store, _runner = _project_scope(ctx, parts[2])
+        return find_workflow(project, parts[4]).to_dict()
+    if len(parts) == 6 and parts[:2] == ["api", "projects"] and parts[3] == "workflows" and parts[5] == "status":
+        project, _store, _runner = _project_scope(ctx, parts[2])
+        workflow = find_workflow(project, parts[4])
+        return status_data(project, workflow)
+    if len(parts) == 6 and parts[:2] == ["api", "projects"] and parts[3] == "workflows" and parts[5] == "items":
+        project, _store, _runner = _project_scope(ctx, parts[2])
+        workflow = find_workflow(project, parts[4])
+        return [item.to_dict() for item in work_items(project, workflow)]
+    if len(parts) == 6 and parts[:2] == ["api", "projects"] and parts[3] == "workflows" and parts[5] == "views":
+        project, _store, _runner = _project_scope(ctx, parts[2])
+        return workflow_views(find_workflow(project, parts[4]))
+    if (
+        method == "POST"
+        and len(parts) == 8
+        and parts[:2] == ["api", "projects"]
+        and parts[3] == "workflows"
+        and parts[5] == "actions"
+        and parts[7] == "run"
+    ):
+        project, _store, runner = _project_scope(ctx, parts[2])
+        workflow = find_workflow(project, parts[4])
+        run = runner.run_sync(
+            workflow,
+            parts[6],
+            work_item_id=body.get("workItemId"),
+            dry_run=bool(body.get("dryRun", False)),
+            inputs=body.get("inputs") if isinstance(body.get("inputs"), dict) else None,
+        )
+        return run.to_dict()
+    if len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "runs":
+        project, store, _runner = _project_scope(ctx, parts[2])
+        return store.list_runs(project.id)
+    if len(parts) == 5 and parts[:2] == ["api", "projects"] and parts[3] == "runs":
+        _project, _store, runner = _project_scope(ctx, parts[2])
+        return runner.get_run(parts[4]).to_dict()
+    if method == "POST" and len(parts) == 6 and parts[:2] == ["api", "projects"] and parts[3] == "runs" and parts[5] == "stop":
+        _project, _store, runner = _project_scope(ctx, parts[2])
+        return runner.stop_run(parts[4]).to_dict()
+    if len(parts) == 6 and parts[:2] == ["api", "projects"] and parts[3] == "runs" and parts[5] == "logs":
+        _project, _store, runner = _project_scope(ctx, parts[2])
+        run = runner.get_run(parts[4])
+        return run.log_path.read_text(encoding="utf-8") if run.log_path.exists() else ""
+    if len(parts) == 6 and parts[:2] == ["api", "projects"] and parts[3] == "runs" and parts[5] == "prompt":
+        _project, _store, runner = _project_scope(ctx, parts[2])
+        run = runner.get_run(parts[4])
+        path = run.prompt_path
+        return path.read_text(encoding="utf-8") if path and path.exists() else ""
+    if len(parts) == 6 and parts[:2] == ["api", "projects"] and parts[3] == "runs" and parts[5] == "final":
+        _project, _store, runner = _project_scope(ctx, parts[2])
+        run = runner.get_run(parts[4])
+        path = run.final_message_path
+        return path.read_text(encoding="utf-8") if path and path.exists() else ""
+    if len(parts) == 6 and parts[:2] == ["api", "projects"] and parts[3] == "runs" and parts[5] == "diff":
+        project, _store, runner = _project_scope(ctx, parts[2])
+        run = runner.get_run(parts[4])
+        return git_diff(project.root_path, run.cwd, project.default_branch)
+    if method == "POST" and len(parts) == 6 and parts[:2] == ["api", "projects"] and parts[3] == "runs" and parts[5] == "open-editor":
+        project, _store, runner = _project_scope(ctx, parts[2])
+        run = runner.get_run(parts[4])
+        return open_editor(project, run.cwd)
     if len(parts) == 3 and parts[:2] == ["api", "workflows"]:
         return find_workflow(ctx.project, parts[2]).to_dict()
     if len(parts) == 4 and parts[:2] == ["api", "workflows"] and parts[3] == "status":
@@ -197,10 +266,10 @@ def route(ctx: SoloContext, method: str, path: str, body: dict) -> object:
     raise NotFoundError(f"route not found: {method} {path}")
 
 
-def _require_project(ctx: SoloContext, project_id: str) -> None:
-    if project_id != ctx.project.id:
-        raise NotFoundError(f"project not found: {project_id}")
+def _project_scope(ctx: SoloContext, project_id: str):
+    project = ctx.get_project(project_id)
+    return project, ctx.get_store(project_id), ctx.get_runner(project_id)
 
 
-def _workflow_dicts(ctx: SoloContext) -> list[dict]:
-    return [workflow.to_dict() for workflow in load_workflows(ctx.project)]
+def _workflow_dicts(project) -> list[dict]:
+    return [workflow.to_dict() for workflow in load_workflows(project)]

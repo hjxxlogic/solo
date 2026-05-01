@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from .app import SoloContext, create_app
 from .errors import SoloError
+from .init import install_codex_hooks
 from .models import JsonDict
 from .workflow import find_workflow, load_workflows, status_data
 
@@ -16,21 +18,31 @@ def print_json(data: object) -> None:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
+    repo = Path(args.repo).resolve()
+    if not repo.exists() or not repo.is_dir():
+        raise SoloError(f"project root does not exist or is not a directory: {repo}")
+    os.chdir(repo)
     try:
         import uvicorn
     except ImportError:
         from .simple_server import serve
 
-        serve(Path(args.repo), args.host, args.port)
+        serve(repo, args.host, args.port)
         return 0
     try:
-        app = create_app(Path(args.repo))
+        app = create_app(repo)
     except RuntimeError:
         from .simple_server import serve
 
-        serve(Path(args.repo), args.host, args.port)
+        serve(repo, args.host, args.port)
         return 0
     uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    ctx = SoloContext(Path(args.repo))
+    print_json(install_codex_hooks(ctx.project))
     return 0
 
 
@@ -100,16 +112,26 @@ def cmd_run_open_editor(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_codex_sessions(args: argparse.Namespace) -> int:
+    ctx = SoloContext(Path(args.repo))
+    print_json(ctx.store.list_codex_sessions(ctx.project.id))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="solo")
     parser.add_argument("--repo", default=".", help="Managed project root. Defaults to current directory.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     serve = subparsers.add_parser("serve", help="Start the SOLO API server.")
-    serve.add_argument("repo", nargs="?", default=None, help="Managed project root.")
+    serve.add_argument("serve_repo", nargs="?", default=None, help="Managed project root.")
+    serve.add_argument("--repo", dest="serve_repo_flag", default=None, help="Managed project root.")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.set_defaults(func=lambda args: cmd_serve(_fix_repo(args)))
+
+    init = subparsers.add_parser("init", help="Initialize SOLO integration for a managed project.")
+    init.set_defaults(func=cmd_init)
 
     workflow = subparsers.add_parser("workflow", help="Workflow commands.")
     workflow_sub = workflow.add_subparsers(dest="workflow_command", required=True)
@@ -148,11 +170,22 @@ def build_parser() -> argparse.ArgumentParser:
     run_editor.add_argument("run_id")
     run_editor.set_defaults(func=cmd_run_open_editor)
 
+    codex = subparsers.add_parser("codex", help="Codex integration commands.")
+    codex_sub = codex.add_subparsers(dest="codex_command", required=True)
+    codex_sessions = codex_sub.add_parser("sessions", help="List tracked Codex sessions.")
+    codex_sessions.set_defaults(func=cmd_codex_sessions)
+
     return parser
 
 
 def _fix_repo(args: argparse.Namespace) -> argparse.Namespace:
-    if args.repo is None:
+    serve_repo = getattr(args, "serve_repo", None)
+    serve_repo_flag = getattr(args, "serve_repo_flag", None)
+    if serve_repo_flag is not None:
+        args.repo = serve_repo_flag
+    elif serve_repo is not None:
+        args.repo = serve_repo
+    elif args.repo is None:
         args.repo = "."
     return args
 

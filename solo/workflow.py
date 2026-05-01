@@ -178,7 +178,9 @@ def ensure_under_project(project: Project, path: Path) -> None:
 def resolve_template(value: str, project: Project, workflow: Workflow, run_id: str | None) -> str:
     scope_path = project.root_path
     replacements = {
+        "projectId": project.id,
         "projectRoot": str(project.root_path),
+        "runtimeDir": str(project.runtime_dir),
         "scopePath": str(scope_path),
         "workflowId": workflow.id,
         "runId": run_id or "",

@@ -13,18 +13,30 @@ class EditorTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
+                "CODE_SERVER_PARENT_PID": "123",
+                "CODE_SERVER_SESSION_SOCKET": "/tmp/code-server.sock",
+                "ELECTRON_RUN_AS_NODE": "1",
+                "VSCODE_CWD": "/home/hj/work/solo",
                 "VSCODE_IPC_HOOK_CLI": "/tmp/vscode.sock",
+                "VSCODE_NLS_CONFIG": "{}",
                 "https_proxy": "http://127.0.0.1:10809",
                 "HTTPS_PROXY": "http://127.0.0.1:10809",
+                "PATH": "/usr/bin:/home/hj/.vscode-server/bin/abc/bin/remote-cli:/home/hj/node/bin",
                 "SOLO_KEEP": "yes",
             },
             clear=True,
         ):
             env = code_server_env()
 
+        self.assertNotIn("CODE_SERVER_PARENT_PID", env)
+        self.assertNotIn("CODE_SERVER_SESSION_SOCKET", env)
+        self.assertNotIn("ELECTRON_RUN_AS_NODE", env)
+        self.assertNotIn("VSCODE_CWD", env)
         self.assertNotIn("VSCODE_IPC_HOOK_CLI", env)
+        self.assertNotIn("VSCODE_NLS_CONFIG", env)
         self.assertNotIn("https_proxy", env)
         self.assertNotIn("HTTPS_PROXY", env)
+        self.assertEqual(env["PATH"], "/usr/bin:/home/hj/node/bin")
         self.assertEqual(env["SOLO_KEEP"], "yes")
 
     def test_editor_public_url_is_local_for_loopback_origin(self) -> None:

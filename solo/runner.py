@@ -113,11 +113,21 @@ class ActionRunner:
 
         try:
             status = status_data(self.project, workflow)
-            self.events.publish("workflow_status_updated", workflowId=workflow.id, status=status)
+            self.events.publish(
+                "workflow_status_updated",
+                projectId=self.project.id,
+                workflowId=workflow.id,
+                status=status,
+            )
             from .workflow import work_items
 
             for item in work_items(self.project, workflow):
-                self.events.publish("work_item_updated", workflowId=workflow.id, item=item.to_dict())
+                self.events.publish(
+                    "work_item_updated",
+                    projectId=self.project.id,
+                    workflowId=workflow.id,
+                    item=item.to_dict(),
+                )
         except Exception as exc:  # Keep action result intact even if status refresh fails.
             with run.log_path.open("a", encoding="utf-8") as log:
                 log.write(f"\n[solo] status refresh failed: {exc}\n")
@@ -259,9 +269,14 @@ class ActionRunner:
         if isinstance(worktree, dict):
             mode = str(worktree.get("mode") or "none")
             if mode == "create":
+                path_template = str(worktree.get("path") or "{runtimeDir}/worktrees/{runId}")
+                if path_template.startswith(".solo-runtime/worktrees/"):
+                    path_template = "{runtimeDir}/worktrees/" + path_template.removeprefix(
+                        ".solo-runtime/worktrees/"
+                    )
                 path = resolve_template_path(
                     self.project,
-                    str(worktree.get("path") or ".solo-runtime/worktrees/{runId}"),
+                    path_template,
                     workflow,
                     run_id,
                 )
