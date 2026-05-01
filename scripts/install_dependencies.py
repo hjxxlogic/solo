@@ -14,6 +14,7 @@ VENV_DIR = REPO_ROOT / ".venv"
 TOOLS_DIR = REPO_ROOT / ".tools"
 CODE_SERVER_DIR = TOOLS_DIR / "code-server"
 NPM_LOG_DIR = Path.home() / ".npm" / "_logs"
+DEFAULT_CLOUDFLARED_CONFIG = Path.home() / ".cloudflared" / "config.yml"
 
 
 def run(command: list[str], *, cwd: Path = REPO_ROOT) -> None:
@@ -135,6 +136,50 @@ def check_external_tools(skip_code_server: bool = False) -> None:
         raise SystemExit("code-server installation did not produce an executable")
     if not command_exists("codex"):
         print("warning: codex CLI was not found; Codex-backed workflow actions will fail until installed")
+    if not command_exists("cloudflared"):
+        print("warning: cloudflared was not found; remote tunnel commands will fail until installed")
+
+
+def write_cloudflared_config(args: argparse.Namespace) -> None:
+    if not args.cloudflared_hostname:
+        return
+    if not args.cloudflared_tunnel:
+        raise SystemExit("--cloudflared-tunnel is required with --cloudflared-hostname")
+    if not args.cloudflared_credentials_file:
+        raise SystemExit("--cloudflared-credentials-file is required with --cloudflared-hostname")
+
+    hostname = args.cloudflared_hostname.strip().rstrip(".")
+    wildcard = f"*.{hostname}"
+    config_path = Path(args.cloudflared_config).expanduser()
+    credentials_file = Path(args.cloudflared_credentials_file).expanduser()
+    service = f"http://127.0.0.1:{args.solo_port}"
+    content = "\n".join(
+        [
+            f"tunnel: {args.cloudflared_tunnel}",
+            f"credentials-file: {credentials_file}",
+            "",
+            "ingress:",
+            f"  - hostname: {hostname}",
+            f"    service: {service}",
+            f"  - hostname: \"{wildcard}\"",
+            f"    service: {service}",
+            "  - service: http_status:404",
+            "",
+        ]
+    )
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    if config_path.exists() and not args.force_cloudflared_config:
+        raise SystemExit(f"{config_path} already exists; pass --force-cloudflared-config to overwrite it")
+    config_path.write_text(content, encoding="utf-8")
+    print("")
+    print(f"cloudflared config written: {config_path}")
+    print("")
+    print("Run these Cloudflare DNS route commands once:")
+    print(f"  cloudflared tunnel route dns {args.cloudflared_tunnel} {hostname}")
+    print(f"  cloudflared tunnel route dns {args.cloudflared_tunnel} \"{wildcard}\"")
+    print("")
+    print("Then start the tunnel:")
+    print(f"  cloudflared tunnel --config {config_path} run {args.cloudflared_tunnel}")
 
 
 def install(args: argparse.Namespace) -> None:
@@ -144,6 +189,7 @@ def install(args: argparse.Namespace) -> None:
         proxy=code_server_install_proxy(args.code_server_proxy),
     )
     check_external_tools(skip_code_server=args.skip_code_server)
+    write_cloudflared_config(args)
     print("")
     print("SOLO dependencies are ready.")
     print(f"Python: {venv_python()}")
@@ -153,7 +199,7 @@ def install(args: argparse.Namespace) -> None:
         print(f"code-server: {shutil.which('code-server')}")
     print("")
     print("Run:")
-    print("  .venv/bin/solo serve . --port 8765")
+    print(f"  .venv/bin/solo serve . --port {args.solo_port}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -163,6 +209,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--code-server-proxy",
         help="Proxy used only for npm code-server installation. Defaults to http://$HOST_IP:10809 when HOST_IP is set.",
+    )
+    parser.add_argument("--solo-port", type=int, default=8765, help="SOLO port used in generated configs.")
+    parser.add_argument("--cloudflared-hostname", help="Public SOLO hostname, for example solo.example.com.")
+    parser.add_argument("--cloudflared-tunnel", help="cloudflared tunnel name or UUID.")
+    parser.add_argument("--cloudflared-credentials-file", help="Path to the cloudflared tunnel credentials JSON.")
+    parser.add_argument(
+        "--cloudflared-config",
+        default=str(DEFAULT_CLOUDFLARED_CONFIG),
+        help="Path to write cloudflared config.yml.",
+    )
+    parser.add_argument(
+        "--force-cloudflared-config",
+        action="store_true",
+        help="Overwrite an existing cloudflared config file.",
     )
     return parser
 

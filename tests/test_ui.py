@@ -47,6 +47,9 @@ class UiRenderingTests(unittest.TestCase):
             self.assertIn('data-theme-choice="light"', html)
             self.assertIn('data-theme-choice="dark"', html)
             self.assertIn("solo-theme", html)
+            self.assertIn('id="editorOverlay"', html)
+            self.assertIn('id="editorBackButton"', html)
+            self.assertIn('id="editorFrame"', html)
 
 
 if __name__ == "__main__":

@@ -51,6 +51,7 @@ function bindEvents() {
   el("statusButton").addEventListener("click", loadSelectedWorkflowData);
   el("runActionButton").addEventListener("click", runSelectedAction);
   el("openEditorButton").addEventListener("click", openSelectedRunEditor);
+  el("editorBackButton").addEventListener("click", closeEditorOverlay);
   el("stopRunButton").addEventListener("click", stopSelectedRun);
   el("createWorkflowButton").addEventListener("click", () => el("workflowDialog").showModal());
   el("bootstrapButton").addEventListener("click", bootstrapWorkflow);
@@ -301,7 +302,7 @@ async function openSelectedRunEditor() {
   if (!run) return;
   try {
     const editor = await api(`/api/runs/${run.id}/open-editor`, { method: "POST", body: "{}" });
-    window.open(editor.url, "_blank", "noopener,noreferrer");
+    showEditorOverlay(editor.url);
   } catch (error) {
     showToast(error.message);
   }
@@ -314,10 +315,28 @@ async function openProjectEditor() {
       method: "POST",
       body: "{}",
     });
-    window.open(editor.url, "_blank", "noopener,noreferrer");
+    showEditorOverlay(editor.url);
   } catch (error) {
     showToast(error.message);
   }
+}
+
+function showEditorOverlay(url) {
+  if (!url) return;
+  const overlay = el("editorOverlay");
+  const frame = el("editorFrame");
+  frame.src = url;
+  overlay.hidden = false;
+  document.body.classList.add("editor-open");
+  el("editorBackButton").focus();
+}
+
+function closeEditorOverlay() {
+  const overlay = el("editorOverlay");
+  const frame = el("editorFrame");
+  overlay.hidden = true;
+  frame.src = "about:blank";
+  document.body.classList.remove("editor-open");
 }
 
 async function stopSelectedRun() {

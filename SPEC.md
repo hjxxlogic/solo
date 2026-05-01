@@ -613,6 +613,10 @@ code-server --bind-addr 127.0.0.1:{port} --auth none {scopePath}
 - 如果实例已存在，直接返回现有 URL。
 - code-server 只能绑定到 `127.0.0.1`。
 - 端口由后端自动分配并记录在 `.solo-runtime/editors/` 中。
+- 本地访问 SOLO 时，`open-editor` 返回 `http://127.0.0.1:{port}`，浏览器直连本地 code-server。
+- 通过 cloudflared 等远程入口访问 SOLO 时，`open-editor` 根据请求 Host 自动返回 `https://editor-<id>.<solo-host>`。
+- `editor-*` Host 由 SOLO 后端反向代理到对应的本地 `127.0.0.1:{port}`，只允许代理 `.solo-runtime/editors/` 中记录且进程仍存活的实例。
+- cloudflared 需要把主域名和 wildcard editor 子域都转发到 SOLO，例如 `solo.example.com` 和 `*.solo.example.com`。
 
 ---
 

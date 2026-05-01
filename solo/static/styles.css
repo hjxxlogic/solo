@@ -57,6 +57,10 @@ body {
   color: var(--text);
 }
 
+body.editor-open {
+  overflow: hidden;
+}
+
 button,
 input,
 select,
@@ -435,6 +439,42 @@ dialog {
   background: var(--toast-bg);
   color: var(--toast-text);
   box-shadow: 0 8px 28px var(--shadow);
+}
+
+.editor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  background: var(--surface);
+}
+
+.editor-overlay[hidden] {
+  display: none;
+}
+
+.editor-overlay iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--surface);
+}
+
+.editor-back {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1001;
+  min-width: 70px;
+  height: 34px;
+  border-color: rgba(0, 0, 0, 0.24);
+  background: rgba(255, 255, 255, 0.92);
+  color: #11161c;
+  box-shadow: 0 6px 22px var(--shadow);
+}
+
+.editor-back:hover {
+  border-color: var(--accent);
 }
 
 @media (max-width: 900px) {

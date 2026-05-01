@@ -155,6 +155,11 @@
       </form>
     </dialog>
 
+    <div id="editorOverlay" class="editor-overlay" hidden>
+      <button id="editorBackButton" class="editor-back" type="button">返回</button>
+      <iframe id="editorFrame" title="code-server"></iframe>
+    </div>
+
     <div id="toast" class="toast" hidden></div>
     <script>
       window.SOLO_BOOTSTRAP = {{ bootstrap | tojson }};

@@ -8,6 +8,7 @@ from .errors import NotFoundError, SoloError
 from .events import EventBus, format_sse
 from .git import diff as git_diff
 from .project import ensure_project, git_info
+from .proxy import EditorProxyMiddleware, request_public_origin
 from .runner import ActionRunner
 from .store import Store
 from .ui import STATIC_DIR, TEMPLATE_DIR, index_context
@@ -36,6 +37,7 @@ def create_app(root: Path):
 
     ctx = SoloContext(root)
     app = FastAPI(title="SOLO", version=__version__)
+    app.add_middleware(EditorProxyMiddleware, project_getter=lambda: ctx.project)
     templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -76,11 +78,11 @@ def create_app(root: Path):
         return git_info(ctx.project)
 
     @app.post("/api/projects/{project_id}/open-editor")
-    def project_open_editor(project_id: str):
+    def project_open_editor(project_id: str, request: Request):
         if project_id != ctx.project.id:
             raise HTTPException(status_code=404, detail="project not found")
         try:
-            data = open_editor(ctx.project, ctx.project.root_path)
+            data = open_editor(ctx.project, ctx.project.root_path, request_public_origin(request))
             ctx.events.publish("editor_started", projectId=project_id, editor=data)
             return data
         except SoloError as exc:
@@ -208,10 +210,10 @@ def create_app(root: Path):
             raise handle_error(exc) from exc
 
     @app.post("/api/runs/{run_id}/open-editor")
-    def run_open_editor(run_id: str):
+    def run_open_editor(run_id: str, request: Request):
         try:
             run = ctx.runner.get_run(run_id)
-            data = open_editor(ctx.project, run.cwd)
+            data = open_editor(ctx.project, run.cwd, request_public_origin(request))
             ctx.events.publish("editor_started", runId=run_id, editor=data)
             return data
         except SoloError as exc:
