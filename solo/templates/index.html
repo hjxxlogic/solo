@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }} · {{ project.name }}</title>
+    <script>
+      (() => {
+        const theme = localStorage.getItem("solo-theme");
+        if (theme === "dark" || theme === "light") {
+          document.documentElement.dataset.theme = theme;
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div>
+          <h1>{{ app_name }}</h1>
+          <div id="projectPath" class="muted">{{ project.rootPath }}</div>
+        </div>
+        <div class="toolbar">
+          <div class="theme-toggle" role="group" aria-label="Theme">
+            <button id="lightThemeButton" type="button" data-theme-choice="light">明亮</button>
+            <button id="darkThemeButton" type="button" data-theme-choice="dark">暗黑</button>
+          </div>
+          <button id="refreshButton" class="primary">Refresh</button>
+          <button id="openProjectEditorButton">Open code-server</button>
+          <button id="createWorkflowButton">Create Workflow</button>
+        </div>
+      </header>
+
+      <section class="project-band">
+        <div>
+          <span class="label">Branch</span>
+          <strong id="branchValue">{{ project.activeBranch or "detached" }}</strong>
+        </div>
+        <div>
+          <span class="label">Default</span>
+          <strong id="defaultBranchValue">{{ project.defaultBranch }}</strong>
+        </div>
+        <div>
+          <span class="label">Git</span>
+          <strong id="dirtyValue">{{ git.dirty }}</strong>
+        </div>
+        <div>
+          <span class="label">Workflows</span>
+          <strong id="workflowCountValue">{{ workflows | length }}</strong>
+        </div>
+      </section>
+
+      <main class="layout">
+        <aside class="sidebar">
+          <div class="section-title">Workflows</div>
+          <div id="workflowList" class="workflow-list">
+            {% if not workflows %}
+              <div class="muted">No workflows</div>
+            {% endif %}
+          </div>
+        </aside>
+
+        <section class="content">
+          <div class="content-header">
+            <div>
+              <h2 id="workflowTitle">No workflow selected</h2>
+              <p id="workflowDescription" class="muted"></p>
+            </div>
+            <div id="workflowMeta" class="meta"></div>
+          </div>
+
+          <div class="action-row">
+            <select id="actionSelect" aria-label="Action"></select>
+            <input id="workItemInput" placeholder="Work item id" />
+            <input id="inputPairs" placeholder="Inputs: key=value,key2=value2" />
+            <label class="checkbox"><input id="dryRunInput" type="checkbox" /> Dry run</label>
+            <button id="runActionButton" class="primary">Run</button>
+          </div>
+
+          <div class="split">
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Status</h3>
+                <button id="statusButton">Query</button>
+              </div>
+              <pre id="statusOutput" class="pre"></pre>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Runs</h3>
+                <div class="toolbar">
+                  <button id="stopRunButton">Stop</button>
+                  <button id="openEditorButton">Open Editor</button>
+                </div>
+              </div>
+              <div id="runList" class="run-list">
+                {% if not runs %}
+                  <div class="muted">No runs</div>
+                {% endif %}
+              </div>
+            </section>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Work Items</h3>
+              <span id="itemCount" class="muted">0</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th>Status</th>
+                    <th>Scope</th>
+                    <th>Source</th>
+                  </tr>
+                </thead>
+                <tbody id="itemsBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Run Detail</h3>
+              <div class="tabs">
+                <button data-tab="prompt">Prompt</button>
+                <button data-tab="logs" class="active">Logs</button>
+                <button data-tab="final">Final</button>
+                <button data-tab="diff">Diff</button>
+              </div>
+            </div>
+            <pre id="runOutput" class="pre tall"></pre>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="workflowDialog">
+      <form method="dialog" class="dialog-body">
+        <h2>Create Workflow</h2>
+        <label>
+          Goal
+          <textarea id="workflowGoal" rows="8" placeholder="描述要让 Codex 为项目创建的 workflow"></textarea>
+        </label>
+        <label class="checkbox"><input id="workflowDryRun" type="checkbox" checked /> Dry run</label>
+        <div class="toolbar right">
+          <button value="cancel">Cancel</button>
+          <button id="bootstrapButton" value="default" class="primary">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" hidden></div>
+    <script>
+      window.SOLO_BOOTSTRAP = {{ bootstrap | tojson }};
+    </script>
+    <script src="{{ url_for('static', path='app.js') }}"></script>
+  </body>
+</html>

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "solo"
+version = "0.1.0"
+description = "Local-first project execution and observation base for project-owned workflows."
+readme = "SPEC.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110",
+  "jinja2>=3.1",
+  "pyyaml>=6.0",
+  "uvicorn>=0.27",
+]
+
+[project.scripts]
+solo = "solo.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["solo*"]
+
+[tool.setuptools.package-data]
+solo = ["static/*", "templates/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
