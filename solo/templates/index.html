@@ -16,125 +16,181 @@
   </head>
   <body>
     <div class="shell">
-      <header class="topbar">
-        <div>
-          <h1>{{ app_name }}</h1>
-          <div id="projectPath" class="muted">{{ project.rootPath }}</div>
-        </div>
-        <div class="toolbar">
-          <div class="theme-toggle" role="group" aria-label="Theme">
-            <button id="lightThemeButton" type="button" data-theme-choice="light">明亮</button>
-            <button id="darkThemeButton" type="button" data-theme-choice="dark">暗黑</button>
-          </div>
-          <button id="refreshButton" class="primary">Refresh</button>
-          <button id="openProjectEditorButton">Open code-server</button>
-          <button id="createWorkflowButton">Create Workflow</button>
-        </div>
-      </header>
-
-      <section class="project-band">
-        <div>
-          <span class="label">Branch</span>
-          <strong id="branchValue">{{ project.activeBranch or "detached" }}</strong>
-        </div>
-        <div>
-          <span class="label">Default</span>
-          <strong id="defaultBranchValue">{{ project.defaultBranch }}</strong>
-        </div>
-        <div>
-          <span class="label">Git</span>
-          <strong id="dirtyValue">{{ git.dirty }}</strong>
-        </div>
-        <div>
-          <span class="label">Workflows</span>
-          <strong id="workflowCountValue">{{ workflows | length }}</strong>
-        </div>
-      </section>
-
       <main class="layout">
         <aside class="sidebar">
-          <div class="section-title">Workflows</div>
-          <div id="workflowList" class="workflow-list">
-            {% if not workflows %}
-              <div class="muted">No workflows</div>
-            {% endif %}
+          <div class="brand">
+            <h1>{{ app_name }}</h1>
+            <div id="projectPath" class="muted small">{{ project.rootPath }}</div>
+          </div>
+
+          <nav class="nav" aria-label="Views">
+            <button class="nav-item active" data-view="overview">
+              <span class="nav-label">Overview</span>
+              <span class="nav-hint muted small">Project & actions</span>
+            </button>
+            <button class="nav-item" data-view="workflows">
+              <span class="nav-label">Workflows</span>
+              <span class="nav-hint muted small"><span id="navWorkflowCount">{{ workflows | length }}</span> defined</span>
+            </button>
+            <button class="nav-item" data-view="runs">
+              <span class="nav-label">Runs</span>
+              <span class="nav-hint muted small"><span id="navRunCount">{{ runs | length }}</span> recorded</span>
+            </button>
+          </nav>
+
+          <div class="sidebar-foot">
+            <div class="theme-toggle" role="group" aria-label="Theme">
+              <button id="lightThemeButton" type="button" data-theme-choice="light">明亮</button>
+              <button id="darkThemeButton" type="button" data-theme-choice="dark">暗黑</button>
+            </div>
           </div>
         </aside>
 
         <section class="content">
-          <div class="content-header">
-            <div>
-              <h2 id="workflowTitle">No workflow selected</h2>
-              <p id="workflowDescription" class="muted"></p>
-            </div>
-            <div id="workflowMeta" class="meta"></div>
-          </div>
-
-          <div class="action-row">
-            <select id="actionSelect" aria-label="Action"></select>
-            <input id="workItemInput" placeholder="Work item id" />
-            <input id="inputPairs" placeholder="Inputs: key=value,key2=value2" />
-            <label class="checkbox"><input id="dryRunInput" type="checkbox" /> Dry run</label>
-            <button id="runActionButton" class="primary">Run</button>
-          </div>
-
-          <div class="split">
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Status</h3>
-                <button id="statusButton">Query</button>
+          <!-- Overview view -->
+          <section class="view active" data-view="overview">
+            <div class="content-header">
+              <div>
+                <h2>Overview</h2>
+                <p class="muted">Project status and global actions.</p>
               </div>
-              <pre id="statusOutput" class="pre"></pre>
-            </section>
+              <div class="toolbar">
+                <button id="refreshButton" class="primary">Refresh</button>
+                <button id="openProjectEditorButton">Open code-server</button>
+                <button id="createWorkflowButton">Create Workflow</button>
+              </div>
+            </div>
 
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Runs</h3>
-                <div class="toolbar">
-                  <button id="stopRunButton">Stop</button>
-                  <button id="openEditorButton">Open Editor</button>
+            <section class="project-band">
+              <div>
+                <span class="label">Branch</span>
+                <strong id="branchValue">{{ project.activeBranch or "detached" }}</strong>
+              </div>
+              <div>
+                <span class="label">Default</span>
+                <strong id="defaultBranchValue">{{ project.defaultBranch }}</strong>
+              </div>
+              <div>
+                <span class="label">Git</span>
+                <strong id="dirtyValue">{{ git.dirty }}</strong>
+              </div>
+              <div>
+                <span class="label">Workflows</span>
+                <strong id="workflowCountValue">{{ workflows | length }}</strong>
+              </div>
+            </section>
+          </section>
+
+          <!-- Workflows view -->
+          <section class="view" data-view="workflows">
+            <div class="content-header">
+              <div>
+                <h2>Workflows</h2>
+                <p class="muted">Select a workflow, run its actions, inspect items.</p>
+              </div>
+            </div>
+
+            <div class="split-2col">
+              <aside class="panel subpanel">
+                <div class="panel-header">
+                  <h3>All</h3>
+                  <span class="muted small" id="workflowListCount">0</span>
                 </div>
-              </div>
-              <div id="runList" class="run-list">
-                {% if not runs %}
-                  <div class="muted">No runs</div>
-                {% endif %}
-              </div>
-            </section>
-          </div>
+                <div id="workflowList" class="workflow-list pad">
+                  {% if not workflows %}
+                    <div class="muted">No workflows</div>
+                  {% endif %}
+                </div>
+              </aside>
 
-          <section class="panel">
-            <div class="panel-header">
-              <h3>Work Items</h3>
-              <span id="itemCount" class="muted">0</span>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Title</th>
-                    <th>Status</th>
-                    <th>Scope</th>
-                    <th>Source</th>
-                  </tr>
-                </thead>
-                <tbody id="itemsBody"></tbody>
-              </table>
+              <div class="stack">
+                <div class="content-header">
+                  <div>
+                    <h3 id="workflowTitle">No workflow selected</h3>
+                    <p id="workflowDescription" class="muted"></p>
+                  </div>
+                  <div id="workflowMeta" class="meta"></div>
+                </div>
+
+                <div class="action-row">
+                  <select id="actionSelect" aria-label="Action"></select>
+                  <input id="workItemInput" placeholder="Work item id" />
+                  <input id="inputPairs" placeholder="Inputs: key=value,key2=value2" />
+                  <label class="checkbox"><input id="dryRunInput" type="checkbox" /> Dry run</label>
+                  <button id="runActionButton" class="primary">Run</button>
+                </div>
+
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Status</h3>
+                    <button id="statusButton">Query</button>
+                  </div>
+                  <pre id="statusOutput" class="pre"></pre>
+                </section>
+
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Work Items</h3>
+                    <span id="itemCount" class="muted">0</span>
+                  </div>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Title</th>
+                          <th>Status</th>
+                          <th>Scope</th>
+                          <th>Source</th>
+                        </tr>
+                      </thead>
+                      <tbody id="itemsBody"></tbody>
+                    </table>
+                  </div>
+                </section>
+              </div>
             </div>
           </section>
 
-          <section class="panel">
-            <div class="panel-header">
-              <h3>Run Detail</h3>
-              <div class="tabs">
-                <button data-tab="prompt">Prompt</button>
-                <button data-tab="logs" class="active">Logs</button>
-                <button data-tab="final">Final</button>
-                <button data-tab="diff">Diff</button>
+          <!-- Runs view -->
+          <section class="view" data-view="runs">
+            <div class="content-header">
+              <div>
+                <h2>Runs</h2>
+                <p class="muted">Inspect prompts, logs, final output and diffs.</p>
+              </div>
+              <div class="toolbar">
+                <button id="stopRunButton">Stop</button>
+                <button id="openEditorButton">Open Editor</button>
               </div>
             </div>
-            <pre id="runOutput" class="pre tall"></pre>
+
+            <div class="split-2col">
+              <aside class="panel subpanel">
+                <div class="panel-header">
+                  <h3>All</h3>
+                  <span class="muted small" id="runListCount">0</span>
+                </div>
+                <div id="runList" class="run-list pad">
+                  {% if not runs %}
+                    <div class="muted">No runs</div>
+                  {% endif %}
+                </div>
+              </aside>
+
+              <section class="panel">
+                <div class="panel-header">
+                  <h3>Run Detail</h3>
+                  <div class="tabs">
+                    <button data-tab="prompt">Prompt</button>
+                    <button data-tab="logs" class="active">Logs</button>
+                    <button data-tab="final">Final</button>
+                    <button data-tab="diff">Diff</button>
+                  </div>
+                </div>
+                <pre id="runOutput" class="pre tall"></pre>
+              </section>
+            </div>
           </section>
         </section>
       </main>

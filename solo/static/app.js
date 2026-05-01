@@ -6,6 +6,7 @@ const state = {
   runs: [],
   activeTab: "logs",
   theme: "light",
+  activeView: "overview",
 };
 
 const el = (id) => document.getElementById(id);
@@ -63,6 +64,31 @@ function bindEvents() {
       loadRunOutput();
     });
   });
+  document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
+    button.addEventListener("click", () => setActiveView(button.dataset.view));
+  });
+}
+
+function setActiveView(view) {
+  if (!view) return;
+  state.activeView = view;
+  document.querySelectorAll(".nav-item[data-view]").forEach((item) => {
+    item.classList.toggle("active", item.dataset.view === view);
+  });
+  document.querySelectorAll(".view[data-view]").forEach((section) => {
+    section.classList.toggle("active", section.dataset.view === view);
+  });
+}
+
+function updateNavCounts() {
+  const wc = el("navWorkflowCount");
+  const rc = el("navRunCount");
+  const wlc = el("workflowListCount");
+  const rlc = el("runListCount");
+  if (wc) wc.textContent = String(state.workflows.length);
+  if (rc) rc.textContent = String(state.runs.length);
+  if (wlc) wlc.textContent = String(state.workflows.length);
+  if (rlc) rlc.textContent = String(state.runs.length);
 }
 
 function initTheme() {
@@ -139,6 +165,7 @@ function renderProject() {
 }
 
 function renderWorkflows() {
+  updateNavCounts();
   const list = el("workflowList");
   list.innerHTML = "";
   if (state.workflows.length === 0) {
@@ -253,6 +280,7 @@ async function runSelectedAction() {
     renderRuns();
     await loadRunOutput();
     await loadSelectedWorkflowData();
+    setActiveView("runs");
     showToast(`Run ${run.status}: ${run.id}`);
   } catch (error) {
     showToast(error.message);
@@ -260,6 +288,7 @@ async function runSelectedAction() {
 }
 
 function renderRuns() {
+  updateNavCounts();
   const list = el("runList");
   list.innerHTML = "";
   if (state.runs.length === 0) {
@@ -371,6 +400,7 @@ async function bootstrapWorkflow(event) {
     renderRuns();
     await loadRunOutput();
     el("workflowDialog").close();
+    setActiveView("runs");
     showToast(`Bootstrap ${run.status}: ${run.id}`);
   } catch (error) {
     showToast(error.message);
